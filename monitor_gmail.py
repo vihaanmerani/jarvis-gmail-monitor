@@ -174,7 +174,7 @@ def check_gmail():
     new_seen = set()
 
     try:
-        request = service.users().messages().list(userId="me", q="is:unread", maxResults=50)
+        request = service.users().messages().list(userId="me", q="is:unread newer_than:20m", maxResults=50)
         while request is not None:
             resp = request.execute()
             for msg in resp.get("messages", []):
@@ -207,7 +207,7 @@ def check_gmail():
             next_page = resp.get("nextPageToken")
             if next_page:
                 request = service.users().messages().list(
-                    userId="me", q="is:unread", maxResults=50, pageToken=next_page
+                    userId="me", q="is:unread newer_than:20m", maxResults=50, pageToken=next_page
                 )
             else:
                 break
@@ -216,6 +216,7 @@ def check_gmail():
 
     seen.update(new_seen)
     save_seen_ids(seen)
+
 
 
 def main():
