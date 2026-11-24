@@ -1,0 +1,10 @@
+.env
+seen_ids.json
+credentials.json
+token.json
+gcp-oauth.keys.json
+*.json
+logs/
+__pycache__/
+*.pyc
+.DS_Store

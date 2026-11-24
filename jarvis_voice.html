@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+  <meta charset="UTF-8">
+  <title>Jarvis Voice</title>
+  <style>
+    body { font-family: "Segoe UI", Arial, sans-serif; background: #f5f5f5; margin: 20px; }
+    h1 { color: #2c3e50; }
+    #status { font-weight: bold; }
+    #conversation { margin: 20px 0; }
+    .entry { padding: 10px 14px; margin-bottom: 10px; border-radius: 8px; max-width: 80%; }
+    .entry.You { background: #d0e8ff; margin-left: auto; }
+    .entry.Jarvis { background: #e0e0e0; }
+  </style>
+</head>
+<body>
+  <h1>Jarvis Voice</h1>
+  <p>Status: <span id="status">Idle</span></p>
+  <div id="conversation"></div>
+  <button id="toggle">Start Listening</button>
+
+  <script>
+    (function () {
+      'use strict';
+
+      // ---- Configuration -------------------------------------------------
+      // Change this to your local backend endpoint.
+      const API_ENDPOINT = 'http://localhost:8000/chat'; // e.g. POST { message: "..." } -> { response: "..." }
+      const LANG = 'en-GB';
+
+      // ---- Speech Recognition ---------------------------------------------
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      let recognition = null;
+      let listening = false;
+      let speaking = false;
+
+      if (SpeechRecognition) {
+        recognition = new SpeechRecognition();
+        recognition.lang = LANG;
+        recognition.continuous = true;
+        recognition.interimResults = false;
+      }
+
+      // ---- Speech Synthesis -----------------------------------------------
+      const synth = window.speechSynthesis;
+      let voices = [];
+
+      function loadVoices() {
+        if (!synth) return;
+        voices = synth.getVoices();
+      }
+      if (synth) {
+        loadVoices();
+        synth.onvoiceschanged = loadVoices;
+      }
+
+      function pickBritishVoice() {
+        // Prefer en-GB voices.
+        let v = voices.find(x => x.lang === 'en-GB' || x.lang === 'en_GB');
+        if (v) return v;
+        // Fallback: any voice whose name/lang suggests British English.
+        v = voices.find(x => /british|en[-_]gb|uk/i.test((x.name + ' ' + x.lang).toLowerCase()));
+        return v || null;
+      }
+
+      function speak(text) {
+        if (!synth) return;
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang = LANG;
+        const gb = pickBritishVoice();
+        if (gb) u.voice = gb;
+
+        speaking = true;
+        statusEl.textContent = 'Speaking...';
+
+        u.onend = function () {
+          speaking = false;
+          statusEl.textContent = listening ? 'Listening...' : 'Idle';
+          if (listening && recognition) {
+            try { recognition.start(); } catch (e) { /* already started */ }
+          }
+        };
+        u.onerror = function () {
+          speaking = false;
+          statusEl.textContent = 'Speech error';
+        };
+
+        synth.speak(u);
+      }
+
+      // ---- DOM -------------------------------------------------------------
+      const statusEl = document.getElementById('status');
+      const convEl = document.getElementById('conversation');
+      const toggleBtn = document.getElementById('toggle');
+
+      function addEntry(text, who) {
+        const div = document.createElement('div');
+        div.className = 'entry ' + who;
+        div.textContent = who + ': ' + text;
+        convEl.appendChild(div);
+      }
+
+      // ---- Recognition handlers -------------------------------------------
+      if (recognition) {
+        recognition.onresult = function (event) {
+          const result = event.results[event.resultIndex];
+          if (!result.isFinal) return;
+          const text = result[0].transcript.trim();
+          if (!text) return;
+
+          addEntry(text, 'You');
+
+          // Stop recognition while we fetch/speak.
+          if (listening) {
+            listening = false;
+            toggleBtn.textContent = 'Start Listening';
+            try { recognition.stop(); } catch (e) {}
+          }
+
+          fetch(API_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: text })
+          })
+          .then(function (r) { return r.json(); })
+          .then(function (data) {
+            const reply = data.response || data.text || JSON.stringify(data);
+            addEntry(reply, 'Jarvis');
+            speak(reply);
+          })
+          .catch(function (err) {
+            console.error('Local Jarvis error:', err);
+            const msg = 'Sorry, I could not reach the local server.';
+            addEntry(msg, 'Jarvis');
+            speak(msg);
+          });
+        };
+
+        recognition.onerror = function (e) {
+          console.error('Recognition error:', e.error);
+          statusEl.textContent = 'Mic error: ' + e.error;
+        };
+
+        recognition.onend = function () {
+          // If we are still supposed to listen and not speaking, restart.
+          if (listening && !speaking) {
+            try { recognition.start(); } catch (e) {}
+          }
+        };
+      }
+
+      toggleBtn.addEventListener('click', function () {
+        if (!recognition) {
+          alert('Web Speech API not supported in this browser.');
+          return;
+        }
+        if (listening) {
+          listening = false;
+          toggleBtn.textContent = 'Start Listening';
+          statusEl.textContent = 'Idle';
+          try { recognition.stop(); } catch (e) {}
+        } else {
+          listening = true;
+          toggleBtn.textContent = 'Stop Listening';
+          statusEl.textContent = 'Listening...';
+          try { recognition.start(); } catch (e) {}
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
