@@ -49,6 +49,17 @@ def is_urgent(subject: str, snippet: str) -> bool:
     text = (subject + " " + snippet).lower()
     return any(kw in text for kw in URGENT_KEYWORDS)
 
+
+def is_automated_or_promo(sender: str, subject: str, snippet: str) -> bool:
+    """Return True if the email looks like a promo/social/automated order-tracking/spam email."""
+    text = (sender + " " + subject + " " + snippet).lower()
+    skip_terms = [
+        "no-reply", "noreply", "unsubscribe",
+        "your order is placed", "order has been shipped",
+        "receipt", "newsletter",
+    ]
+    return any(term in text for term in skip_terms)
+
 def sanitize(text: str) -> str:
     text = re.sub(r"\b\d{6}\b", "[OTP]", text)
     text = re.sub(r"(password|passcode|code|pin)\s*[:=]\s*\S+", r"\1: [REDACTED]", text, flags=re.I)
@@ -174,7 +185,11 @@ def check_gmail():
     new_seen = set()
 
     try:
-        request = service.users().messages().list(userId="me", q="is:unread newer_than:20m", maxResults=50)
+        request = service.users().messages().list(
+            userId="me",
+            q="is:unread newer_than:20m category:primary -category:promotions -category:social -category:updates -category:forums",
+            maxResults=50,
+        )
         while request is not None:
             resp = request.execute()
             for msg in resp.get("messages", []):
@@ -191,24 +206,27 @@ def check_gmail():
                 sender = headers.get("From", "(unknown sender)")
                 snippet = full.get("snippet", "")
 
-                urgent = is_urgent(subject, snippet)
-                priority = "urgent" if urgent else "default"
+                if is_automated_or_promo(sender, subject, snippet):
+                    new_seen.add(msg_id)
+                    continue
+
+                priority = "urgent"
 
                 summary = sanitize(f"Jarvis: {subject} — from {sender}")
-                if not urgent:
-                    summary = f"Jarvis: New email: {subject}"
 
                 send_ntfy(summary, priority)
-                if urgent:
-                    send_messages(summary, SMS_TARGET)
+                send_messages(summary, SMS_TARGET)
 
                 new_seen.add(msg_id)
 
             next_page = resp.get("nextPageToken")
             if next_page:
                 request = service.users().messages().list(
-                    userId="me", q="is:unread newer_than:20m", maxResults=50, pageToken=next_page
-                )
+                userId="me",
+                q="is:unread newer_than:20m category:primary -category:promotions -category:social -category:updates -category:forums",
+                maxResults=50,
+                pageToken=next_page,
+            )
             else:
                 break
     except Exception as e:
