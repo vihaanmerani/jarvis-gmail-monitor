@@ -4,9 +4,7 @@ Jarvis Gmail Monitor
 - Runs every 15 minutes via cron (*/15 * * * *)
 - Checks Gmail for unread emails using OAuth credentials from environment variables (GMAIL_CREDENTIALS, GMAIL_TOKEN) or local ~/.gmail-mcp/
 - Tracks seen email IDs in seen_ids.json to avoid duplicate alerts
-- Sends short summaries (prefixed "Jarvis: ") to:
-    1. ntfy.sh topic jarvis-vihaan-merani-67
-    2. Mac Messages app to +918988987777 for urgent emails (skipped on Linux)
+- Sends short summaries (prefixed "Jarvis: ") to macOS Messages app (iMessage) to +918988987777 for every genuine human email (skipped on Linux)
 - Never includes OTP codes or passwords in notifications
 """
 
@@ -21,8 +19,6 @@ import tempfile
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SEEN_IDS_FILE = os.path.join(BASE_DIR, "seen_ids.json")
 GMAIL_CREDS_PATH = os.path.expanduser("~/.gmail-mcp/credentials.json")
-NTFY_TOPIC = "jarvis-vihaan-merani-67"
-NTFY_URL = f"https://ntfy.sh/{NTFY_TOPIC}"
 SMS_TARGET = "+918988987777"
 
 URGENT_KEYWORDS = [
@@ -66,20 +62,6 @@ def sanitize(text: str) -> str:
     if len(text) > 160:
         text = text[:157] + "..."
     return text
-
-def send_ntfy(message: str, priority: str = "default"):
-    cmd = [
-        "/usr/bin/curl", "-s", "-X", "POST",
-        "-H", f"Priority: {priority}",
-        "-d", message,
-        NTFY_URL,
-    ]
-    try:
-        subprocess.run(cmd, check=True, timeout=10)
-        return True
-    except subprocess.CalledProcessError as e:
-        print(f"[ERROR] ntfy send failed: {e}", file=sys.stderr)
-        return False
 
 def send_messages(message: str, phone: str):
     if platform.system() != "Darwin":
@@ -214,7 +196,6 @@ def check_gmail():
 
                 summary = sanitize(f"Jarvis: {subject} — from {sender}")
 
-                send_ntfy(summary, priority)
                 send_messages(summary, SMS_TARGET)
 
                 new_seen.add(msg_id)
@@ -240,8 +221,6 @@ def check_gmail():
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "--test":
         test_msg = "Jarvis: TEST urgent notification from monitor_gmail.py"
-        print("Sending test urgent to ntfy...")
-        send_ntfy(test_msg, "urgent")
         print("Sending test urgent to Messages...")
         send_messages(test_msg, SMS_TARGET)
         return
